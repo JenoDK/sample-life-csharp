@@ -1,0 +1,205 @@
+openapi: '3.0.3'
+info:
+  title: Sample Life Kafka Topic
+  description: |
+    ## Introduction
+
+    This document will describe the messages that can get posted on the `sample-life` kafka topic.
+
+    The goal is that multiple applications can communicate with each other through this topic.
+
+    Some examples could be:
+    - SLIMS starts a protocol for a certain sample -> SLIMS posts a message on the topic saying the sample has started a protocol -> a dashboard application picks up this message and uses it to display the info to a lab admin
+    - An Agilent scale weighs a certain sample -> posts this result on the kafka topic -> SLIMS picks this up and fills the result value for that sample
+    - ...
+
+    ## SLIMS as a producer
+
+    To make SLIMS work as a producer a few things are needed:
+    - SLIMSGATE is running
+    - The kafka-sample-life-producer plugin is running
+    - Rules are configured for every workflow context event that trigger the `kafka-sample-life-producer` slimsgate flow.
+      These rules can have a conditional expression as well that can be customized.
+
+    TODO: The plugin and rules could be a SLIMSSHARE package
+
+    Certain events in SLIMS will result in a message being posted on the topic.
+    The message will always be a SampleMessage, see the schema for more information.
+    Depending on the event the SampleMessage will contain an event with some extra information about the event.
+    - When a result is filled in for a sample inside a workflow the event object will contain a SampleResult object
+    - When a sample is reduced (derived in SLIMS terminology) within a workflow the event object will contain a SampleReduced object
+    - When a sample is mixed in a workflow the event object will contain a SampleMixed object
+    - When a sample is scheduled in a workflow the event object will contain a SampleScheduled object
+    - When a sample is rescheduled (requeued in SLIMS terminology) in a workflow the event object will contain a SampleRescheduled object
+    - When a sample is cancelled in a workflow the event object will contain a SampleCancelled object
+    - When a flag is added to a sample in a workflow the event object will contain a SampleFlagged object
+    - When a protocol step is started then for every sample within that step a messages is produced and the event object will contain a SampleProtocolStepStarted object
+    - When a protocol step is finished then for every sample within that step a messages is produced and the event object will contain a SampleProtocolStepFinished object
+    - When a protocol is finished then for every sample within that protocol a messages is produced and the event object will contain a SampleProtocolFinished object
+    - When a sample went through the complete workflow the event object will contain a SampleWorkflowFinished object
+
+  version: 1.0.0
+paths:
+  {}
+components:
+  schemas:
+    Protocol:
+      type: object
+      required:
+        - unique_id
+      properties:
+        name:
+          type: string
+          example: Sample needs to be weighed
+        unique_id:
+          type: string
+          example: sample_weight
+          description: The SLIMS unique identifier for the protocol
+    Sample:
+      type: object
+      required:
+        - barcode
+      properties:
+        barcode:
+          type: string
+        type:
+          type: string
+        detail:
+          type: object
+          additionalProperties: true
+      example:
+        barcode: 0000005
+        type: Blood
+        detail: { status: Pending }
+    SampleMessage:
+      type: object
+      required:
+        - producer
+        - sample
+        - event
+      properties:
+        producer:
+          type: string
+          description: The id of the producer of this message.
+        sample:
+          $ref: '#/components/schemas/Sample'
+        event:
+          $ref: '#/components/schemas/BaseSampleEvent'
+#          oneOf:
+#            - $ref: '#/components/schemas/SampleCancelled'
+#            - $ref: '#/components/schemas/SampleFlagged'
+#            - $ref: '#/components/schemas/SampleMixed'
+#            - $ref: '#/components/schemas/SampleProtocolFinished'
+#            - $ref: '#/components/schemas/SampleProtocolStepFinished'
+#            - $ref: '#/components/schemas/SampleProtocolStepStarted'
+#            - $ref: '#/components/schemas/SampleReduced'
+#            - $ref: '#/components/schemas/SampleRescheduled'
+#            - $ref: '#/components/schemas/SampleResult'
+#            - $ref: '#/components/schemas/SampleWorkflowFinished'
+#            - $ref: '#/components/schemas/SampleScheduled'
+#          discriminator:
+#            propertyName: eventType
+    BaseSampleEvent:
+      type: object
+      required:
+        - eventType
+      x-abstract: true
+      properties:
+        eventType:
+          type: string
+        protocol:
+          $ref: '#/components/schemas/Protocol'
+      discriminator:
+        propertyName: eventType
+    SampleResult:
+      allOf:
+        - $ref: '#/components/schemas/BaseSampleEvent'
+        - type: object
+          properties:
+            value:
+              type: number
+              format: double
+              example: 0.049
+            unit:
+              type: string
+              example: mol/L
+            test:
+              type: string
+              example: concentration
+    SampleReduced:
+      allOf:
+        - $ref: '#/components/schemas/BaseSampleEvent'
+        - type: object
+          properties:
+            subsamples:
+              type: array
+              items:
+                $ref: '#/components/schemas/Sample'
+    SampleMixed:
+      allOf:
+        - $ref: '#/components/schemas/BaseSampleEvent'
+        - type: object
+          properties:
+            ingredients:
+              type: array
+              items:
+                $ref: '#/components/schemas/Sample'
+    SampleScheduled:
+      allOf:
+        - $ref: '#/components/schemas/BaseSampleEvent'
+        - type: object
+          properties:
+            requested:
+              type: string
+              example: Measure sunscreen compounds
+            workflow:
+              type: string
+              example: Workflow to analyze sunscreen
+    SampleRescheduled:
+      allOf:
+        - $ref: '#/components/schemas/BaseSampleEvent'
+        - type: object
+          properties:
+            rescheduled_to:
+              type: string
+              example: Ready for measurement
+    SampleCancelled:
+      allOf:
+        - $ref: '#/components/schemas/BaseSampleEvent'
+        - type: object
+    SampleFlagged:
+      allOf:
+        - $ref: '#/components/schemas/BaseSampleEvent'
+        - type: object
+          properties:
+            flag:
+              type: string
+              example: Sample was dropped on the floor
+    SampleProtocolStepStarted:
+      allOf:
+        - $ref: '#/components/schemas/BaseSampleEvent'
+        - type: object
+          properties:
+            step:
+              type: string
+              example: Sample is being pipetted into a tube
+    SampleProtocolStepFinished:
+      allOf:
+        - $ref: '#/components/schemas/BaseSampleEvent'
+        - type: object
+          properties:
+            step:
+              type: string
+              example: Sample was pipetted into a tube
+    SampleProtocolFinished:
+      allOf:
+        - $ref: '#/components/schemas/BaseSampleEvent'
+        - type: object
+    SampleWorkflowFinished:
+      allOf:
+        - $ref: '#/components/schemas/BaseSampleEvent'
+        - type: object
+          properties:
+            workflow:
+              type: string
+              example: Sunscreen workflow CCL
